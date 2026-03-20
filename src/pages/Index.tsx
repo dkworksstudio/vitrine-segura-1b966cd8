@@ -2,7 +2,9 @@ import { useState } from "react";
 import { useProducts } from "@/hooks/useProducts";
 import ProductGrid from "@/components/ProductGrid";
 import CategoryTabs from "@/components/CategoryTabs";
-import { RefreshCw, ShieldCheck } from "lucide-react";
+import TrustBadges from "@/components/TrustBadges";
+import UrgencyBanner from "@/components/UrgencyBanner";
+import { RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -30,44 +32,57 @@ export default function Index() {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="border-b bg-card">
-        <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <ShieldCheck className="w-6 h-6 text-primary" />
-            <h1 className="text-lg font-bold text-foreground">Vitrine Segura</h1>
+      {/* Hero */}
+      <header className="relative overflow-hidden">
+        <div className="max-w-4xl mx-auto px-4 pt-10 pb-8 text-center space-y-6">
+          {/* Logo area */}
+          <div className="inline-flex items-center justify-center bg-foreground/10 backdrop-blur rounded-2xl px-8 py-6">
+            <h1 className="text-3xl md:text-4xl font-black">
+              <span className="text-foreground">Vitrine </span>
+              <span className="text-primary">Segura</span>
+            </h1>
           </div>
+
+          {/* Title */}
+          <div>
+            <h2 className="text-2xl md:text-4xl font-black italic text-foreground uppercase">
+              Achadinhos <span className="text-primary">Úteis</span>
+            </h2>
+            <p className="text-sm text-muted-foreground mt-2">
+              Os melhores produtos do Mercado Livre hoje
+            </p>
+          </div>
+
+          {/* Trust Badges */}
+          <TrustBadges />
+
+          {/* Sync button */}
           <button
             onClick={handleSync}
             disabled={syncing}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors active:scale-[0.97]"
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-bold bg-primary text-primary-foreground hover:brightness-110 disabled:opacity-50 transition-all active:scale-[0.97]"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${syncing ? "animate-spin" : ""}`} />
-            {syncing ? "Sincronizando..." : "Sincronizar"}
+            {syncing ? "Sincronizando..." : "Sincronizar Produtos"}
           </button>
         </div>
       </header>
 
-      {/* Hero */}
-      <section className="bg-card border-b">
-        <div className="max-w-7xl mx-auto px-4 py-8">
-          <h2 className="text-2xl font-bold text-foreground text-wrap-balance">
-            Melhores ofertas do Mercado Livre
-          </h2>
-          <p className="text-sm text-muted-foreground mt-1">
-            Produtos mais vendidos, atualizados automaticamente.
-          </p>
-        </div>
+      {/* Category Tabs */}
+      <section className="max-w-7xl mx-auto px-4 py-4">
+        <CategoryTabs selected={category} onSelect={setCategory} />
       </section>
 
-      {/* Content */}
-      <main className="max-w-7xl mx-auto px-4 py-6 space-y-4">
-        <CategoryTabs selected={category} onSelect={setCategory} />
+      {/* Urgency Banner */}
+      <UrgencyBanner />
+
+      {/* Products */}
+      <main className="max-w-7xl mx-auto px-4 py-8">
         <ProductGrid products={products} isLoading={isLoading} />
       </main>
 
       {/* Footer */}
-      <footer className="border-t mt-12">
+      <footer className="border-t border-border mt-8">
         <div className="max-w-7xl mx-auto px-4 py-6 text-center text-xs text-muted-foreground">
           Vitrine Segura · Dados obtidos via API pública do Mercado Livre
         </div>

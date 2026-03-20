@@ -9,14 +9,16 @@ interface ProductGridProps {
 export default function ProductGrid({ products, isLoading }: ProductGridProps) {
   if (isLoading) {
     return (
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-        {Array.from({ length: 10 }).map((_, i) => (
-          <div key={i} className="rounded-lg bg-card animate-pulse">
-            <div className="aspect-square bg-muted rounded-t-lg" />
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+        {Array.from({ length: 8 }).map((_, i) => (
+          <div key={i} className="rounded-xl bg-card animate-pulse border border-border">
+            <div className="aspect-square bg-muted rounded-t-xl" />
             <div className="p-3 space-y-2">
+              <div className="h-3 bg-muted rounded w-1/3" />
               <div className="h-3 bg-muted rounded w-full" />
               <div className="h-3 bg-muted rounded w-2/3" />
-              <div className="h-4 bg-muted rounded w-1/2" />
+              <div className="h-5 bg-muted rounded w-1/2" />
+              <div className="h-8 bg-muted rounded w-full" />
             </div>
           </div>
         ))}
@@ -34,8 +36,8 @@ export default function ProductGrid({ products, isLoading }: ProductGridProps) {
   }
 
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-      {products.map((product) => (
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+      {products.map((product, i) => (
         <ProductCard
           key={product.id}
           title={product.title}
@@ -45,6 +47,7 @@ export default function ProductGrid({ products, isLoading }: ProductGridProps) {
           permalink={product.permalink}
           soldQuantity={product.sold_quantity}
           freeShipping={product.free_shipping}
+          featured={i === 0}
         />
       ))}
     </div>
