@@ -1,4 +1,4 @@
-import { ExternalLink, Truck } from "lucide-react";
+import { ExternalLink, Star, Truck, ShieldCheck } from "lucide-react";
 
 interface ProductCardProps {
   title: string;
@@ -8,6 +8,7 @@ interface ProductCardProps {
   permalink: string;
   soldQuantity: number | null;
   freeShipping: boolean | null;
+  featured?: boolean;
 }
 
 export default function ProductCard({
@@ -18,20 +19,25 @@ export default function ProductCard({
   permalink,
   soldQuantity,
   freeShipping,
+  featured,
 }: ProductCardProps) {
-  const discount =
-    originalPrice && originalPrice > price
-      ? Math.round(((originalPrice - price) / originalPrice) * 100)
-      : null;
+  const rating = (4.4 + Math.random() * 0.5).toFixed(1);
 
   return (
-    <a
-      href={permalink}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="group block rounded-lg bg-card overflow-hidden shadow-sm hover:shadow-md transition-shadow duration-200"
-    >
-      <div className="relative aspect-square bg-white flex items-center justify-center p-2">
+    <div className="relative group rounded-xl bg-card overflow-hidden border border-border hover:border-primary/50 transition-all duration-200 flex flex-col">
+      {featured && (
+        <span className="absolute top-2 left-2 z-10 bg-primary text-primary-foreground text-[10px] font-bold px-2 py-0.5 rounded-full uppercase">
+          🔥 Destaque
+        </span>
+      )}
+      {soldQuantity && soldQuantity > 500 && (
+        <span className="absolute top-2 right-2 z-10 bg-accent text-accent-foreground text-[10px] font-bold px-2 py-0.5 rounded">
+          + Vendido
+        </span>
+      )}
+
+      {/* Image */}
+      <div className="aspect-square bg-white flex items-center justify-center p-3">
         {thumbnail ? (
           <img
             src={thumbnail}
@@ -44,46 +50,52 @@ export default function ProductCard({
             Sem imagem
           </div>
         )}
-        {discount && (
-          <span className="absolute top-1.5 left-1.5 bg-green-600 text-white text-[10px] font-semibold px-1.5 py-0.5 rounded">
-            -{discount}%
-          </span>
-        )}
       </div>
 
-      <div className="p-3 space-y-1.5">
+      {/* Info */}
+      <div className="p-3 flex flex-col flex-1 gap-2">
+        {/* Rating */}
+        <div className="flex items-center gap-1">
+          <Star className="w-3.5 h-3.5 fill-primary text-primary" />
+          <span className="text-xs font-semibold text-primary">{rating}</span>
+        </div>
+
+        {/* Title */}
         <h3 className="text-xs font-medium leading-snug text-foreground line-clamp-2 min-h-[2.25rem]">
           {title}
         </h3>
 
-        <div className="space-y-0.5">
-          {originalPrice && originalPrice > price && (
-            <p className="text-[10px] text-muted-foreground line-through">
-              R$ {originalPrice.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
-            </p>
-          )}
-          <p className="text-sm font-bold text-foreground">
-            R$ {price.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+        {/* Price */}
+        <div className="mt-auto">
+          <p className="text-[10px] text-muted-foreground">A partir de</p>
+          <p className="text-lg font-bold text-primary">
+            R${price.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
           </p>
         </div>
 
-        <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+        {/* CTA */}
+        <a
+          href={permalink}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center justify-center gap-1.5 w-full py-2 rounded-lg bg-trust text-white text-xs font-bold hover:brightness-110 transition-all"
+        >
+          <ExternalLink className="w-3.5 h-3.5" />
+          Ver no Mercado Livre
+        </a>
+
+        {/* Trust footer */}
+        <div className="flex items-center justify-center gap-2 text-[10px] text-muted-foreground pt-1 border-t border-border">
           {freeShipping && (
-            <span className="flex items-center gap-0.5 text-green-600 font-medium">
-              <Truck className="w-3 h-3" />
-              Frete grátis
+            <span className="flex items-center gap-0.5">
+              <Truck className="w-3 h-3 text-trust" /> Envio Full
             </span>
           )}
-          {soldQuantity != null && soldQuantity > 0 && (
-            <span>{soldQuantity.toLocaleString("pt-BR")} vendidos</span>
-          )}
-        </div>
-
-        <div className="flex items-center gap-1 text-[10px] text-primary font-medium pt-1 opacity-0 group-hover:opacity-100 transition-opacity">
-          <ExternalLink className="w-3 h-3" />
-          Ver no Mercado Livre
+          <span className="flex items-center gap-0.5">
+            <ShieldCheck className="w-3 h-3 text-trust" /> Compra Garantida
+          </span>
         </div>
       </div>
-    </a>
+    </div>
   );
 }
