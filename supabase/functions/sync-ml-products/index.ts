@@ -8,12 +8,12 @@ const corsHeaders = {
 };
 
 const CATEGORIES = [
-  { id: "MLB1055", name: "Celulares e Telefones" },
-  { id: "MLB1648", name: "Informática" },
-  { id: "MLB1574", name: "Eletrodomésticos" },
-  { id: "MLB1246", name: "Beleza e Cuidado Pessoal" },
-  { id: "MLB1276", name: "Esportes e Fitness" },
-  { id: "MLB1132", name: "Casa e Decoração" },
+  { id: "MLB1055", name: "Celulares e Telefones", keywords: ["smartphone", "celular samsung", "iphone", "fone bluetooth", "carregador celular", "capinha celular"] },
+  { id: "MLB1648", name: "Informática", keywords: ["notebook", "mouse gamer", "teclado mecanico", "monitor", "ssd", "webcam"] },
+  { id: "MLB1574", name: "Eletrodomésticos", keywords: ["air fryer", "aspirador robo", "cafeteira", "liquidificador", "microondas", "ventilador"] },
+  { id: "MLB1246", name: "Beleza e Cuidado Pessoal", keywords: ["perfume masculino", "maquiagem", "secador cabelo", "protetor solar", "creme hidratante", "escova alisadora"] },
+  { id: "MLB1276", name: "Esportes e Fitness", keywords: ["tenis corrida", "whey protein", "haltere", "bicicleta", "smartwatch", "colchonete yoga"] },
+  { id: "MLB1132", name: "Casa e Decoração", keywords: ["luminaria", "organizador", "tapete", "cortina", "prateleira", "travesseiro"] },
 ];
 
 async function getAccessToken(): Promise<string> {
@@ -22,10 +22,7 @@ async function getAccessToken(): Promise<string> {
 
   const res = await fetch("https://api.mercadolibre.com/oauth/token", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      "Accept": "application/json",
-    },
+    headers: { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json" },
     body: new URLSearchParams({
       grant_type: "client_credentials",
       client_id: clientId,
@@ -33,87 +30,35 @@ async function getAccessToken(): Promise<string> {
     }),
   });
 
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`OAuth failed (${res.status}): ${text}`);
-  }
-
+  if (!res.ok) throw new Error(`OAuth failed: ${res.status}`);
   const data = await res.json();
   return data.access_token;
 }
 
-async function fetchCategory(
-  categoryId: string,
-  categoryName: string,
-  accessToken: string
-): Promise<any[]> {
+async function fetchWithAuth(url: string, token: string): Promise<Response> {
   const headers: Record<string, string> = {
     "Accept": "application/json",
     "User-Agent": "VitrineSegura/1.0",
   };
-  if (accessToken) {
-    headers["Authorization"] = `Bearer ${accessToken}`;
-  }
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  return fetch(url, { headers });
+}
 
-  // Try search endpoint first
-  const searchUrl = `https://api.mercadolibre.com/sites/MLB/search?category=${categoryId}&sort=sold_quantity_desc&limit=30`;
-  console.log(`Trying search: ${searchUrl}`);
-  
-  let res = await fetch(searchUrl, { headers });
-  
-  if (res.ok) {
-    const data = await res.json();
-    return data.results || [];
-  }
-  
-  console.log(`Search returned ${res.status}, trying highlights...`);
-  
-  // Fallback: category highlights
-  const highlightsUrl = `https://api.mercadolibre.com/highlights/MLB/category/${categoryId}`;
-  res = await fetch(highlightsUrl, { headers });
-  
-  if (res.ok) {
-    const highlights = await res.json();
-    const itemIds = (highlights.content || []).slice(0, 30).map((h: any) => h.id);
-    
-    if (itemIds.length > 0) {
-      const itemsUrl = `https://api.mercadolibre.com/items?ids=${itemIds.join(",")}`;
-      const itemsRes = await fetch(itemsUrl, { headers });
-      
-      if (itemsRes.ok) {
-        const itemsData = await itemsRes.json();
-        return itemsData
-          .filter((r: any) => r.code === 200)
-          .map((r: any) => r.body);
-      }
+async function fetchItemDetails(itemIds: string[], token: string): Promise<any[]> {
+  const items: any[] = [];
+  // ML allows up to 20 items per multi-get
+  for (let i = 0; i < itemIds.length; i += 20) {
+    const batch = itemIds.slice(i, i + 20);
+    const url = `https://api.mercadolibre.com/items?ids=${batch.join(",")}&attributes=id,title,price,original_price,thumbnail,permalink,sold_quantity,condition,shipping`;
+    const res = await fetchWithAuth(url, token);
+    if (res.ok) {
+      const data = await res.json();
+      items.push(...data.filter((r: any) => r.code === 200).map((r: any) => r.body));
+    } else {
+      console.error(`Items batch failed: ${res.status}`);
     }
   }
-  
-  console.log(`Highlights returned ${res.status}, trying trends...`);
-  
-  // Fallback 2: trends
-  const trendsUrl = `https://api.mercadolibre.com/trends/MLB/${categoryId}`;
-  res = await fetch(trendsUrl, { headers });
-  
-  if (res.ok) {
-    const trends = await res.json();
-    // Trends returns keyword trends, need to search each
-    const allItems: any[] = [];
-    for (const trend of (trends || []).slice(0, 5)) {
-      const keyword = trend.keyword;
-      if (!keyword) continue;
-      const kUrl = `https://api.mercadolibre.com/sites/MLB/search?q=${encodeURIComponent(keyword)}&category=${categoryId}&limit=6`;
-      const kRes = await fetch(kUrl, { headers });
-      if (kRes.ok) {
-        const kData = await kRes.json();
-        allItems.push(...(kData.results || []));
-      }
-    }
-    return allItems;
-  }
-  
-  console.error(`All endpoints failed for ${categoryName}`);
-  return [];
+  return items;
 }
 
 serve(async (req) => {
@@ -139,11 +84,73 @@ serve(async (req) => {
 
     for (const category of CATEGORIES) {
       try {
-        const results = await fetchCategory(category.id, category.name, accessToken);
-        console.log(`Got ${results.length} results for ${category.name}`);
+        let results: any[] = [];
+
+        // Strategy 1: Try search endpoint  
+        const searchUrl = `https://api.mercadolibre.com/sites/MLB/search?category=${category.id}&sort=sold_quantity_desc&limit=30`;
+        const searchRes = await fetchWithAuth(searchUrl, accessToken);
+        
+        if (searchRes.ok) {
+          const searchData = await searchRes.json();
+          results = searchData.results || [];
+          console.log(`Search OK for ${category.name}: ${results.length} results`);
+        } else {
+          console.log(`Search ${searchRes.status} for ${category.name}, trying keywords...`);
+          
+          // Strategy 2: Search by keywords (may bypass geo-block)
+          const seenIds = new Set<string>();
+          for (const keyword of category.keywords) {
+            try {
+              const kwUrl = `https://api.mercadolibre.com/sites/MLB/search?q=${encodeURIComponent(keyword)}&sort=sold_quantity_desc&limit=6`;
+              const kwRes = await fetchWithAuth(kwUrl, accessToken);
+              if (kwRes.ok) {
+                const kwData = await kwRes.json();
+                for (const item of (kwData.results || [])) {
+                  if (!seenIds.has(item.id)) {
+                    seenIds.add(item.id);
+                    results.push(item);
+                  }
+                }
+              }
+            } catch (e) {
+              // skip keyword
+            }
+          }
+          console.log(`Keywords got ${results.length} results for ${category.name}`);
+          
+          // Strategy 3: If keywords also fail, try trends + item details
+          if (results.length === 0) {
+            console.log(`Trying trends for ${category.name}...`);
+            const trendsUrl = `https://api.mercadolibre.com/trends/MLB/${category.id}`;
+            const trendsRes = await fetchWithAuth(trendsUrl, accessToken);
+            if (trendsRes.ok) {
+              const trends = await trendsRes.json();
+              const trendKeywords = (trends || []).slice(0, 5).map((t: any) => t.keyword).filter(Boolean);
+              for (const kw of trendKeywords) {
+                try {
+                  const kwUrl = `https://api.mercadolibre.com/sites/MLB/search?q=${encodeURIComponent(kw)}&limit=6`;
+                  const kwRes = await fetchWithAuth(kwUrl, accessToken);
+                  if (kwRes.ok) {
+                    const kwData = await kwRes.json();
+                    for (const item of (kwData.results || [])) {
+                      if (!seenIds.has(item.id)) {
+                        seenIds.add(item.id);
+                        results.push(item);
+                      }
+                    }
+                  }
+                } catch (e) {
+                  // skip
+                }
+              }
+              console.log(`Trends got ${results.length} results for ${category.name}`);
+            }
+          }
+        }
 
         const products = results
           .filter((item: any) => item.price && item.price > 0)
+          .slice(0, 30)
           .map((item: any) => ({
             ml_id: item.id,
             title: item.title,
@@ -159,7 +166,7 @@ serve(async (req) => {
             synced_at: new Date().toISOString(),
           }));
 
-        console.log(`Valid products: ${products.length}`);
+        console.log(`Upserting ${products.length} products for ${category.name}`);
 
         if (products.length) {
           const { error } = await supabase
