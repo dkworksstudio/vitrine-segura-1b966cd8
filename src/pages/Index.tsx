@@ -21,9 +21,8 @@ export default function Index() {
   const handleSync = async () => {
     setSyncing(true);
     try {
-      const { data, error } = await supabase.functions.invoke("sync-ml-products");
-      if (error) throw error;
-      toast.success(`Sincronização concluída: ${data?.total ?? 0} produtos atualizados`);
+      const result = await syncProducts();
+      toast.success(`Sincronização concluída: ${result.total} produtos atualizados`);
       refetch();
     } catch (err: any) {
       toast.error("Erro ao sincronizar: " + (err.message || "tente novamente"));
