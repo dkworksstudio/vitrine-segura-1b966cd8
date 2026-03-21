@@ -7,15 +7,6 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
-const CATEGORIES = [
-  { id: "MLB1055", name: "Celulares e Telefones" },
-  { id: "MLB1648", name: "Informática" },
-  { id: "MLB1574", name: "Eletrodomésticos" },
-  { id: "MLB1246", name: "Beleza e Cuidado Pessoal" },
-  { id: "MLB1276", name: "Esportes e Fitness" },
-  { id: "MLB1132", name: "Casa e Decoração" },
-];
-
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -27,65 +18,53 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    let totalProducts = 0;
+    const { products } = await req.json();
 
-    for (const category of CATEGORIES) {
-      try {
-        // Use public search API - no auth needed, returns real prices
-        const searchUrl = `https://api.mercadolibre.com/sites/MLB/search?category=${category.id}&sort=sold_quantity_desc&limit=20`;
-        console.log(`Fetching: ${searchUrl}`);
+    if (!Array.isArray(products) || products.length === 0) {
+      return new Response(
+        JSON.stringify({ success: false, error: "No products provided" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
-        const res = await fetch(searchUrl);
-        if (!res.ok) {
-          console.error(`Search failed for ${category.name}: ${res.status}`);
-          continue;
-        }
+    // Validate and sanitize products
+    const sanitized = products
+      .filter((p: any) => p.ml_id && p.title && p.price > 0 && p.permalink)
+      .map((p: any) => ({
+        ml_id: String(p.ml_id),
+        title: String(p.title).slice(0, 500),
+        price: Number(p.price),
+        original_price: p.original_price ? Number(p.original_price) : null,
+        thumbnail: p.thumbnail ? String(p.thumbnail).replace("http://", "https://") : null,
+        permalink: String(p.permalink),
+        category_id: String(p.category_id),
+        category_name: String(p.category_name),
+        sold_quantity: Number(p.sold_quantity) || 0,
+        condition: p.condition ? String(p.condition) : null,
+        free_shipping: Boolean(p.free_shipping),
+        synced_at: new Date().toISOString(),
+      }));
 
-        const data = await res.json();
-        const results = data.results || [];
-        console.log(`Got ${results.length} results for ${category.name}`);
+    console.log(`Upserting ${sanitized.length} products`);
 
-        const products = results
-          .filter((item: any) => item.price && item.price > 0)
-          .map((item: any) => ({
-            ml_id: item.id,
-            title: item.title,
-            price: item.price,
-            original_price: item.original_price || null,
-            thumbnail: (item.thumbnail || "").replace("http://", "https://"),
-            permalink: item.permalink,
-            category_id: category.id,
-            category_name: category.name,
-            sold_quantity: item.sold_quantity || 0,
-            condition: item.condition || null,
-            free_shipping: item.shipping?.free_shipping || false,
-            synced_at: new Date().toISOString(),
-          }));
+    const { error } = await supabase
+      .from("products")
+      .upsert(sanitized, { onConflict: "ml_id" });
 
-        console.log(`Valid products with prices: ${products.length}`);
-
-        if (products.length) {
-          const { error } = await supabase
-            .from("products")
-            .upsert(products, { onConflict: "ml_id" });
-
-          if (error) {
-            console.error(`Upsert error for ${category.name}:`, error);
-          } else {
-            totalProducts += products.length;
-          }
-        }
-      } catch (catError) {
-        console.error(`Error processing ${category.name}:`, catError);
-      }
+    if (error) {
+      console.error("Upsert error:", error);
+      return new Response(
+        JSON.stringify({ success: false, error: error.message }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
     return new Response(
-      JSON.stringify({ success: true, total: totalProducts }),
+      JSON.stringify({ success: true, total: sanitized.length }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error: any) {
-    console.error("Sync error:", error);
+    console.error("Error:", error);
     return new Response(
       JSON.stringify({ success: false, error: error.message }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
