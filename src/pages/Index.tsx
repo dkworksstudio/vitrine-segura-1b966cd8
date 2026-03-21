@@ -80,8 +80,12 @@ export default function Index() {
 
       {/* Footer */}
       <footer className="border-t border-border mt-8">
-        <div className="max-w-7xl mx-auto px-4 py-6 text-center text-xs text-muted-foreground">
-          Vitrine Segura · Dados obtidos via API pública do Mercado Livre
+        <div className="max-w-7xl mx-auto px-4 py-6 flex flex-col items-center gap-3 text-center text-xs text-muted-foreground">
+          <p>Vitrine Segura · Dados obtidos via API pública do Mercado Livre</p>
+          <div className="flex items-center gap-2">
+            <span>Desenvolvido por</span>
+            <img src={logoDk} alt="DK Works Studio" className="h-6" />
+          </div>
         </div>
       </footer>
     </div>
