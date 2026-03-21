@@ -1,12 +1,12 @@
 import { useState } from "react";
 import { useProducts } from "@/hooks/useProducts";
+import { syncProducts } from "@/hooks/useSyncProducts";
 import ProductGrid from "@/components/ProductGrid";
 import CategoryTabs from "@/components/CategoryTabs";
 import TrustBadges from "@/components/TrustBadges";
 import UrgencyBanner from "@/components/UrgencyBanner";
 import { RefreshCw } from "lucide-react";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
 import logoVitrine from "@/assets/logo-vitrine-segura.png";
 import logoDk from "@/assets/logo-dk-works.png";
 
