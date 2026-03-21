@@ -32,7 +32,7 @@ serve(async (req) => {
     for (const category of CATEGORIES) {
       try {
         // Use public search API - no auth needed, returns real prices
-        const searchUrl = `https://api.mercadolibre.com/sites/MLB/search?category=${category.id}&sort=sold_quantity_desc&limit=20`;
+        const searchUrl = `https://api.mercadolibre.com/sites/MLB/search?category=${category.id}&sort=sold_quantity_desc&limit=30`;
         console.log(`Fetching: ${searchUrl}`);
 
         const res = await fetch(searchUrl);

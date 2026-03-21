@@ -80,11 +80,22 @@ export default function Index() {
 
       {/* Footer */}
       <footer className="border-t border-border mt-8">
-        <div className="max-w-7xl mx-auto px-4 py-6 flex flex-col items-center gap-3 text-center text-xs text-muted-foreground">
+        <div className="max-w-7xl mx-auto px-4 py-6 flex flex-col items-center gap-4 text-center text-xs text-muted-foreground">
           <p>Vitrine Segura · Dados obtidos via API pública do Mercado Livre</p>
-          <div className="flex items-center gap-2">
-            <span>Desenvolvido por</span>
-            <img src={logoDk} alt="DK Works Studio" className="h-6" />
+          <div className="flex flex-col items-center gap-2">
+            <div className="flex items-center gap-2">
+              <span>Desenvolvido por</span>
+              <img src={logoDk} alt="DK Works Studio" className="h-6" />
+            </div>
+            <div className="flex items-center gap-3 text-[10px]">
+              <a href="https://wa.me/5549989232307" target="_blank" rel="noopener noreferrer" className="hover:text-primary transition-colors">
+                📱 (49) 98923-2307
+              </a>
+              <span>·</span>
+              <a href="https://dkworksstudio.base44.app/" target="_blank" rel="noopener noreferrer" className="hover:text-primary transition-colors">
+                🌐 dkworksstudio.base44.app
+              </a>
+            </div>
           </div>
         </div>
       </footer>
