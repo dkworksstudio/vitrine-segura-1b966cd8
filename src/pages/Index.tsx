@@ -38,12 +38,7 @@ export default function Index() {
       <header className="relative overflow-hidden">
         <div className="max-w-4xl mx-auto px-4 pt-10 pb-8 text-center space-y-6">
           {/* Logo area */}
-          <div className="inline-flex items-center justify-center bg-foreground/10 backdrop-blur rounded-2xl px-8 py-6">
-            <h1 className="text-3xl md:text-4xl font-black">
-              <span className="text-foreground">Vitrine </span>
-              <span className="text-primary">Segura</span>
-            </h1>
-          </div>
+          <img src={logoVitrine} alt="Vitrine Segura" className="h-16 md:h-20" />
 
           {/* Title */}
           <div>
