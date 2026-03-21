@@ -7,6 +7,8 @@ import UrgencyBanner from "@/components/UrgencyBanner";
 import { RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import logoVitrine from "@/assets/logo-vitrine-segura.png";
+import logoDk from "@/assets/logo-dk-works.png";
 
 export default function Index() {
   const [category, setCategory] = useState("all");
