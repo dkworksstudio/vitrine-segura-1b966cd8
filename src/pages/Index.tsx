@@ -38,7 +38,7 @@ export default function Index() {
       <header className="relative overflow-hidden">
         <div className="max-w-4xl mx-auto px-4 pt-10 pb-8 text-center space-y-6">
           {/* Logo area */}
-          <img src={logoVitrine} alt="Vitrine Segura" className="h-16 md:h-20" />
+          <img src={logoVitrine} alt="Vitrine Segura" className="h-24 md:h-32 mx-auto" />
 
           {/* Title */}
           <div>
