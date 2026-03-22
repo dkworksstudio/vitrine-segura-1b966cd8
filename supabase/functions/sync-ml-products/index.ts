@@ -7,49 +7,103 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
+const CATEGORIES = [
+  { id: "MLB1055", name: "Celulares e Telefones" },
+  { id: "MLB1648", name: "Informática" },
+  { id: "MLB1574", name: "Eletrodomésticos" },
+  { id: "MLB1246", name: "Beleza e Cuidado Pessoal" },
+  { id: "MLB1276", name: "Esportes e Fitness" },
+  { id: "MLB1132", name: "Casa e Decoração" },
+];
+
+async function getAccessToken(): Promise<string> {
+  const clientId = Deno.env.get("ML_CLIENT_ID")!;
+  const clientSecret = Deno.env.get("ML_CLIENT_SECRET")!;
+
+  const res = await fetch("https://api.mercadolibre.com/oauth/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "client_credentials",
+      client_id: clientId,
+      client_secret: clientSecret,
+    }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`OAuth error ${res.status}: ${text}`);
+  }
+
+  const data = await res.json();
+  return data.access_token;
+}
+
+async function fetchCategory(categoryId: string, categoryName: string, token: string) {
+  const url = `https://api.mercadolibre.com/sites/MLB/search?category=${categoryId}&sort=sold_quantity_desc&limit=30`;
+
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (!res.ok) {
+    console.error(`Search error for ${categoryName}: ${res.status}`);
+    return [];
+  }
+
+  const data = await res.json();
+  return (data.results || [])
+    .filter((item: any) => item.price && item.price > 0)
+    .map((item: any) => ({
+      ml_id: item.id,
+      title: String(item.title).slice(0, 500),
+      price: Number(item.price),
+      original_price: item.original_price ? Number(item.original_price) : null,
+      thumbnail: (item.thumbnail || "").replace("http://", "https://"),
+      permalink: item.permalink,
+      category_id: categoryId,
+      category_name: categoryName,
+      sold_quantity: Number(item.sold_quantity) || 0,
+      condition: item.condition || null,
+      free_shipping: item.shipping?.free_shipping || false,
+      synced_at: new Date().toISOString(),
+    }));
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
+    const token = await getAccessToken();
+    console.log("OAuth token obtained");
+
+    const promises = CATEGORIES.map((cat) => fetchCategory(cat.id, cat.name, token));
+    const results = await Promise.allSettled(promises);
+
+    const allProducts: any[] = [];
+    for (const r of results) {
+      if (r.status === "fulfilled") allProducts.push(...r.value);
+    }
+
+    console.log(`Fetched ${allProducts.length} products from ML API`);
+
+    if (allProducts.length === 0) {
+      return new Response(
+        JSON.stringify({ success: false, error: "No products fetched from ML" }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    const { products } = await req.json();
-
-    if (!Array.isArray(products) || products.length === 0) {
-      return new Response(
-        JSON.stringify({ success: false, error: "No products provided" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    // Validate and sanitize products
-    const sanitized = products
-      .filter((p: any) => p.ml_id && p.title && p.price > 0 && p.permalink)
-      .map((p: any) => ({
-        ml_id: String(p.ml_id),
-        title: String(p.title).slice(0, 500),
-        price: Number(p.price),
-        original_price: p.original_price ? Number(p.original_price) : null,
-        thumbnail: p.thumbnail ? String(p.thumbnail).replace("http://", "https://") : null,
-        permalink: String(p.permalink),
-        category_id: String(p.category_id),
-        category_name: String(p.category_name),
-        sold_quantity: Number(p.sold_quantity) || 0,
-        condition: p.condition ? String(p.condition) : null,
-        free_shipping: Boolean(p.free_shipping),
-        synced_at: new Date().toISOString(),
-      }));
-
-    console.log(`Upserting ${sanitized.length} products`);
-
     const { error } = await supabase
       .from("products")
-      .upsert(sanitized, { onConflict: "ml_id" });
+      .upsert(allProducts, { onConflict: "ml_id" });
 
     if (error) {
       console.error("Upsert error:", error);
@@ -60,7 +114,7 @@ serve(async (req) => {
     }
 
     return new Response(
-      JSON.stringify({ success: true, total: sanitized.length }),
+      JSON.stringify({ success: true, total: allProducts.length }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (error: any) {
