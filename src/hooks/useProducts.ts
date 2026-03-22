@@ -33,6 +33,7 @@ export function useProducts(categoryId?: string) {
       let query = supabase
         .from("products")
         .select("*")
+        .gt("price", 0)
         .order("sold_quantity", { ascending: false });
 
       if (categoryId) {
