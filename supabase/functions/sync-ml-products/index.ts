@@ -16,38 +16,13 @@ const CATEGORIES = [
   { id: "MLB1132", name: "Casa e Decoração" },
 ];
 
-async function getAccessToken(): Promise<string> {
-  const clientId = Deno.env.get("ML_CLIENT_ID")!;
-  const clientSecret = Deno.env.get("ML_CLIENT_SECRET")!;
-
-  const res = await fetch("https://api.mercadolibre.com/oauth/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      grant_type: "client_credentials",
-      client_id: clientId,
-      client_secret: clientSecret,
-    }),
-  });
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`OAuth error ${res.status}: ${text}`);
-  }
-
-  const data = await res.json();
-  return data.access_token;
-}
-
-async function fetchCategory(categoryId: string, categoryName: string, token: string) {
+async function fetchCategory(categoryId: string, categoryName: string) {
   const url = `https://api.mercadolibre.com/sites/MLB/search?category=${categoryId}&sort=sold_quantity_desc&limit=30`;
 
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const res = await fetch(url);
 
   if (!res.ok) {
-    console.error(`Search error for ${categoryName}: ${res.status}`);
+    console.error(`Search error for ${categoryName}: ${res.status} - ${await res.text()}`);
     return [];
   }
 
@@ -76,10 +51,7 @@ serve(async (req) => {
   }
 
   try {
-    const token = await getAccessToken();
-    console.log("OAuth token obtained");
-
-    const promises = CATEGORIES.map((cat) => fetchCategory(cat.id, cat.name, token));
+    const promises = CATEGORIES.map((cat) => fetchCategory(cat.id, cat.name));
     const results = await Promise.allSettled(promises);
 
     const allProducts: any[] = [];
