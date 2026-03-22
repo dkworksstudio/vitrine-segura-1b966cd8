@@ -1,3 +1,5 @@
+import { supabase } from "@/integrations/supabase/client";
+
 export async function syncProducts(): Promise<{ total: number }> {
   const { data, error } = await supabase.functions.invoke("sync-ml-products", {
     body: {},
