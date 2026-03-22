@@ -51,10 +51,7 @@ serve(async (req) => {
   }
 
   try {
-    const token = await getAccessToken();
-    console.log("OAuth token obtained");
-
-    const promises = CATEGORIES.map((cat) => fetchCategory(cat.id, cat.name, token));
+    const promises = CATEGORIES.map((cat) => fetchCategory(cat.id, cat.name));
     const results = await Promise.allSettled(promises);
 
     const allProducts: any[] = [];
