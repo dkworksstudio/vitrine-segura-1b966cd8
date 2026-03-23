@@ -182,6 +182,34 @@ function normalizeFromItems(
   };
 }
 
+async function fetchSearchProducts(categoryId: string, categoryName: string, limit = 30): Promise<ProductPayload[]> {
+  const url = `https://api.mercadolibre.com/sites/MLB/search?category=${categoryId}&sort=sold_quantity_desc&limit=${limit}`;
+  try {
+    const res = await fetch(url, { headers: { Accept: "application/json" } });
+    if (!res.ok) return [];
+    const data = await res.json();
+    const results = data?.results || [];
+    return results
+      .filter((item: any) => item?.id && Number(item?.price) > 0)
+      .map((item: any) => ({
+        ml_id: String(item.id),
+        title: String(item.title || "").slice(0, 500),
+        price: Number(item.price),
+        original_price: item.original_price && Number(item.original_price) > 0 ? Number(item.original_price) : null,
+        thumbnail: item.thumbnail ? String(item.thumbnail).replace("http://", "https://") : null,
+        permalink: String(item.permalink || `https://www.mercadolivre.com.br/p/${item.id}`),
+        category_id: categoryId,
+        category_name: categoryName,
+        sold_quantity: Number(item.sold_quantity || 0),
+        condition: item.condition || null,
+        free_shipping: Boolean(item.shipping?.free_shipping),
+        synced_at: new Date().toISOString(),
+      }));
+  } catch {
+    return [];
+  }
+}
+
 async function syncFromMlCatalog(supabase: ReturnType<typeof createClient>) {
   const token = await getMlAccessToken();
 
@@ -203,46 +231,53 @@ async function syncFromMlCatalog(supabase: ReturnType<typeof createClient>) {
     fallbackMap.set(String(row.ml_id), row);
   }
 
-  if (targetIds.length === 0) {
-    for (const category of CATEGORIES) {
-      try {
-        const highlights = await fetchWithRetry(
-          `https://api.mercadolibre.com/highlights/MLB/category/${category.id}`,
-          token,
-          1
-        );
+  // Always fetch from highlights + search to ensure 30 per category
+  const searchProducts: ProductPayload[] = [];
 
-        const ids = (highlights?.content || [])
-          .map((entry: any) => String(entry?.id || ""))
-          .filter(Boolean)
-          .slice(0, 30);
+  for (const category of CATEGORIES) {
+    // Fetch via Search API (public, no token needed) — 30 per category
+    const fromSearch = await fetchSearchProducts(category.id, category.name, 30);
+    searchProducts.push(...fromSearch);
 
-        for (const id of ids) {
-          if (!fallbackMap.has(id)) {
-            fallbackMap.set(id, {
-              category_id: category.id,
-              category_name: category.name,
-              permalink: `https://www.mercadolivre.com.br/p/${id}`,
-            });
-          }
+    // Also try highlights for additional IDs
+    try {
+      const highlights = await fetchWithRetry(
+        `https://api.mercadolibre.com/highlights/MLB/category/${category.id}`,
+        token,
+        1
+      );
+      const ids = (highlights?.content || [])
+        .map((entry: any) => String(entry?.id || ""))
+        .filter(Boolean)
+        .slice(0, 30);
+
+      for (const id of ids) {
+        if (!fallbackMap.has(id)) {
+          fallbackMap.set(id, {
+            category_id: category.id,
+            category_name: category.name,
+            permalink: `https://www.mercadolivre.com.br/p/${id}`,
+          });
         }
-        targetIds.push(...ids);
-      } catch (err) {
-        console.warn(`Highlights falhou para ${category.name}:`, err);
       }
+      targetIds.push(...ids);
+    } catch (err) {
+      console.warn(`Highlights falhou para ${category.name}:`, err);
     }
   }
 
+  // Deduplicate
   targetIds = Array.from(new Set(targetIds));
-  if (targetIds.length === 0) {
-    throw new Error("Nenhum ID de produto disponível para atualização");
-  }
+  const searchIds = new Set(searchProducts.map((p) => p.ml_id));
 
-  const collected: ProductPayload[] = [];
+  // Only fetch details for IDs not already covered by search
+  const idsToFetch = targetIds.filter((id) => !searchIds.has(id));
+
+  const collected: ProductPayload[] = [...searchProducts];
   const batchSize = 8;
 
-  for (let i = 0; i < targetIds.length; i += batchSize) {
-    const batch = targetIds.slice(i, i + batchSize);
+  for (let i = 0; i < idsToFetch.length; i += batchSize) {
+    const batch = idsToFetch.slice(i, i + batchSize);
     const batchResults = await Promise.allSettled(
       batch.map(async (id) => {
         const details = await fetchWithRetry(
