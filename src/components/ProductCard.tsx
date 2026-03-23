@@ -75,7 +75,7 @@ export default function ProductCard({
 
         {/* CTA */}
         <a
-          href={permalink}
+          href={`${permalink}${permalink.includes('?') ? '&' : '?'}matt_tool=7566231704682871&matt_word=&matt_source=vitrine-segura`}
           target="_blank"
           rel="noopener noreferrer"
           className="flex items-center justify-center gap-1 w-full py-1.5 rounded-md bg-trust text-white text-[10px] font-bold hover:brightness-110 transition-all"
