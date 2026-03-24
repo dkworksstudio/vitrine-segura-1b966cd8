@@ -182,122 +182,115 @@ function normalizeFromItems(
   };
 }
 
-async function fetchSearchProducts(categoryId: string, categoryName: string, limit = 30): Promise<ProductPayload[]> {
-  const url = `https://api.mercadolibre.com/sites/MLB/search?category=${categoryId}&sort=sold_quantity_desc&limit=${limit}`;
+async function fetchProductIds(categoryId: string, token: string): Promise<string[]> {
+  const ids = new Set<string>();
+
+  // Highlights for main category
   try {
-    const res = await fetch(url, { headers: { Accept: "application/json" } });
-    if (!res.ok) return [];
-    const data = await res.json();
-    const results = data?.results || [];
-    return results
-      .filter((item: any) => item?.id && Number(item?.price) > 0)
-      .map((item: any) => ({
-        ml_id: String(item.id),
-        title: String(item.title || "").slice(0, 500),
-        price: Number(item.price),
-        original_price: item.original_price && Number(item.original_price) > 0 ? Number(item.original_price) : null,
-        thumbnail: item.thumbnail ? String(item.thumbnail).replace("http://", "https://") : null,
-        permalink: String(item.permalink || `https://www.mercadolivre.com.br/p/${item.id}`),
-        category_id: categoryId,
-        category_name: categoryName,
-        sold_quantity: Number(item.sold_quantity || 0),
-        condition: item.condition || null,
-        free_shipping: Boolean(item.shipping?.free_shipping),
-        synced_at: new Date().toISOString(),
-      }));
-  } catch {
-    return [];
+    const data = await fetchWithRetry(
+      `https://api.mercadolibre.com/highlights/MLB/category/${categoryId}`,
+      token, 1
+    );
+    for (const entry of data?.content || []) {
+      if (entry?.id) ids.add(String(entry.id));
+    }
+  } catch {}
+
+  // Subcategory highlights
+  try {
+    const catData = await fetchWithRetry(
+      `https://api.mercadolibre.com/categories/${categoryId}`,
+      token, 1
+    );
+    const children = (catData?.children_categories || []).slice(0, 8);
+    await Promise.allSettled(
+      children.map(async (child: any) => {
+        try {
+          const sub = await fetchWithRetry(
+            `https://api.mercadolibre.com/highlights/MLB/category/${child.id}`,
+            token, 1
+          );
+          for (const entry of sub?.content || []) {
+            if (entry?.id) ids.add(String(entry.id));
+          }
+        } catch {}
+      })
+    );
+  } catch {}
+
+  return Array.from(ids);
+}
+
+async function fetchItemsForIds(
+  ids: string[],
+  token: string,
+  categoryMap: Map<string, { category_id: string; category_name: string }>
+): Promise<ProductPayload[]> {
+  const results: ProductPayload[] = [];
+  const batchSize = 15;
+
+  for (let i = 0; i < ids.length; i += batchSize) {
+    const batch = ids.slice(i, i + batchSize);
+    const batchResults = await Promise.allSettled(
+      batch.map(async (id) => {
+        try {
+          const details = await fetchWithRetry(
+            `https://api.mercadolibre.com/products/${id}/items?limit=1`,
+            token, 1
+          );
+          const first = (details?.results || [])[0];
+          if (!first) return null;
+          const fb = categoryMap.get(id) || {};
+          return normalizeFromItems(id, first, fb as any);
+        } catch (err: any) {
+          if (i === 0) console.warn(`Item fetch failed for ${id}: ${err.message?.slice(0, 100)}`);
+          return null;
+        }
+      })
+    );
+    for (const r of batchResults) {
+      if (r.status === "fulfilled" && r.value) results.push(r.value);
+    }
+    // If getting rate limited, add delay
+    if (results.length === 0 && i > 0) await new Promise(r => setTimeout(r, 500));
   }
+  return results;
 }
 
 async function syncFromMlCatalog(supabase: ReturnType<typeof createClient>) {
   const token = await getMlAccessToken();
 
-  const { data: existingRows, error: existingError } = await supabase
-    .from("products")
-    .select("ml_id,title,thumbnail,permalink,category_id,category_name")
-    .limit(1000);
-
-  if (existingError) {
-    throw new Error(`Erro ao carregar base atual: ${existingError.message}`);
-  }
-
-  const fallbackMap = new Map<string, any>();
-  let targetIds = (existingRows || [])
-    .map((row) => String(row.ml_id || ""))
-    .filter(Boolean);
-
-  for (const row of existingRows || []) {
-    fallbackMap.set(String(row.ml_id), row);
-  }
-
-  // Always fetch from highlights + search to ensure 30 per category
-  const searchProducts: ProductPayload[] = [];
+  // Build category map: item_id -> { category_id, category_name }
+  const categoryMap = new Map<string, { category_id: string; category_name: string }>();
+  const allIds: string[] = [];
 
   for (const category of CATEGORIES) {
-    // Fetch via Search API (public, no token needed) — 30 per category
-    const fromSearch = await fetchSearchProducts(category.id, category.name, 30);
-    searchProducts.push(...fromSearch);
+    const ids = await fetchProductIds(category.id, token);
+    console.log(`${category.name}: ${ids.length} IDs from highlights`);
 
-    // Also try highlights for additional IDs
-    try {
-      const highlights = await fetchWithRetry(
-        `https://api.mercadolibre.com/highlights/MLB/category/${category.id}`,
-        token,
-        1
-      );
-      const ids = (highlights?.content || [])
-        .map((entry: any) => String(entry?.id || ""))
-        .filter(Boolean)
-        .slice(0, 30);
-
-      for (const id of ids) {
-        if (!fallbackMap.has(id)) {
-          fallbackMap.set(id, {
-            category_id: category.id,
-            category_name: category.name,
-            permalink: `https://www.mercadolivre.com.br/p/${id}`,
-          });
-        }
-      }
-      targetIds.push(...ids);
-    } catch (err) {
-      console.warn(`Highlights falhou para ${category.name}:`, err);
+    // Take up to 40 IDs per category to ensure we get 30+ valid items
+    const selected = ids.slice(0, 40);
+    for (const id of selected) {
+      categoryMap.set(id, { category_id: category.id, category_name: category.name });
     }
+    allIds.push(...selected);
   }
 
   // Deduplicate
-  targetIds = Array.from(new Set(targetIds));
-  const searchIds = new Set(searchProducts.map((p) => p.ml_id));
+  const uniqueIds = Array.from(new Set(allIds));
+  console.log(`Total unique IDs to fetch: ${uniqueIds.length}`);
 
-  // Only fetch details for IDs not already covered by search
-  const idsToFetch = targetIds.filter((id) => !searchIds.has(id));
-
-  const collected: ProductPayload[] = [...searchProducts];
-  const batchSize = 8;
-
-  for (let i = 0; i < idsToFetch.length; i += batchSize) {
-    const batch = idsToFetch.slice(i, i + batchSize);
-    const batchResults = await Promise.allSettled(
-      batch.map(async (id) => {
-        const details = await fetchWithRetry(
-          `https://api.mercadolibre.com/products/${id}/items?limit=1`,
-          token,
-          2
-        );
-        const first = (details?.results || [])[0];
-        return normalizeFromItems(id, first, fallbackMap.get(id));
-      })
-    );
-
-    for (const r of batchResults) {
-      if (r.status === "fulfilled" && r.value) {
-        collected.push(r.value);
-      }
-    }
-  }
+  // Fetch all items via multiget (20 per request = fast)
+  const collected = await fetchItemsForIds(uniqueIds, token, categoryMap);
+  console.log(`Total products fetched: ${collected.length}`);
 
   if (collected.length === 0) {
+    // Don't fail if we already have products in DB
+    const { count } = await supabase.from("products").select("*", { count: "exact", head: true });
+    if (count && count > 0) {
+      console.warn("No new products fetched, but DB has existing products");
+      return count;
+    }
     throw new Error("No products fetched from ML");
   }
 
