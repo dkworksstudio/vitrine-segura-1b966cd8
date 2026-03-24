@@ -293,38 +293,26 @@ async function syncFromMlCatalog(supabase: ReturnType<typeof createClient>) {
     fallbackMap.set(String(row.ml_id), row);
   }
 
-  // Always fetch from highlights + search to ensure 30 per category
+  // Fetch products via search (public) + trends/highlights (authenticated)
   const searchProducts: ProductPayload[] = [];
 
   for (const category of CATEGORIES) {
-    const fromSearch = await fetchSearchProducts(category.id, category.name, token, 30);
+    // Public search (may 403 from datacenter)
+    const fromSearch = await fetchSearchProducts(category.id, category.name, 30);
     searchProducts.push(...fromSearch);
 
-    // Also try highlights for additional IDs
-    try {
-      const highlights = await fetchWithRetry(
-        `https://api.mercadolibre.com/highlights/MLB/category/${category.id}`,
-        token,
-        1
-      );
-      const ids = (highlights?.content || [])
-        .map((entry: any) => String(entry?.id || ""))
-        .filter(Boolean)
-        .slice(0, 30);
-
-      for (const id of ids) {
-        if (!fallbackMap.has(id)) {
-          fallbackMap.set(id, {
-            category_id: category.id,
-            category_name: category.name,
-            permalink: `https://www.mercadolivre.com.br/p/${id}`,
-          });
-        }
+    // Authenticated: highlights + trends for more IDs
+    const trendIds = await fetchTrendsByCategory(category.id, token);
+    for (const id of trendIds) {
+      if (!fallbackMap.has(id)) {
+        fallbackMap.set(id, {
+          category_id: category.id,
+          category_name: category.name,
+          permalink: `https://www.mercadolivre.com.br/p/${id}`,
+        });
       }
-      targetIds.push(...ids);
-    } catch (err) {
-      console.warn(`Highlights falhou para ${category.name}:`, err);
     }
+    targetIds.push(...trendIds);
   }
 
   // Deduplicate
