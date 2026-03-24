@@ -250,7 +250,7 @@ async function syncFromMlCatalog(supabase: ReturnType<typeof createClient>) {
 
   for (const category of CATEGORIES) {
     // Fetch via Search API (public, no token needed) — 30 per category
-    const fromSearch = await fetchSearchProducts(category.id, category.name, 50);
+    const fromSearch = await fetchSearchProducts(category.id, category.name, 30);
     searchProducts.push(...fromSearch);
 
     // Also try highlights for additional IDs
