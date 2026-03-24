@@ -182,32 +182,46 @@ function normalizeFromItems(
   };
 }
 
-async function fetchSearchProducts(categoryId: string, categoryName: string, limit = 30): Promise<ProductPayload[]> {
-  const url = `https://api.mercadolibre.com/sites/MLB/search?category=${categoryId}&sort=sold_quantity_desc&limit=${limit}`;
-  try {
-    const res = await fetch(url, { headers: { Accept: "application/json" } });
-    if (!res.ok) return [];
-    const data = await res.json();
-    const results = data?.results || [];
-    return results
-      .filter((item: any) => item?.id && Number(item?.price) > 0)
-      .map((item: any) => ({
-        ml_id: String(item.id),
-        title: String(item.title || "").slice(0, 500),
-        price: Number(item.price),
-        original_price: item.original_price && Number(item.original_price) > 0 ? Number(item.original_price) : null,
-        thumbnail: item.thumbnail ? String(item.thumbnail).replace("http://", "https://") : null,
-        permalink: String(item.permalink || `https://www.mercadolivre.com.br/p/${item.id}`),
-        category_id: categoryId,
-        category_name: categoryName,
-        sold_quantity: Number(item.sold_quantity || 0),
-        condition: item.condition || null,
-        free_shipping: Boolean(item.shipping?.free_shipping),
-        synced_at: new Date().toISOString(),
-      }));
-  } catch {
-    return [];
+async function fetchSearchProducts(categoryId: string, categoryName: string, target = 30): Promise<ProductPayload[]> {
+  const seen = new Set<string>();
+  const all: ProductPayload[] = [];
+
+  // Try multiple sort orders and offsets to gather enough products
+  const sorts = ["sold_quantity_desc", "relevance", "price_desc"];
+  for (const sort of sorts) {
+    if (all.length >= target) break;
+    for (let offset = 0; offset < 100 && all.length < target; offset += 50) {
+      const url = `https://api.mercadolibre.com/sites/MLB/search?category=${categoryId}&sort=${sort}&limit=50&offset=${offset}`;
+      try {
+        const res = await fetch(url, { headers: { Accept: "application/json" } });
+        if (!res.ok) continue;
+        const data = await res.json();
+        const results = data?.results || [];
+        for (const item of results) {
+          if (all.length >= target) break;
+          if (!item?.id || Number(item?.price) <= 0 || seen.has(String(item.id))) continue;
+          seen.add(String(item.id));
+          all.push({
+            ml_id: String(item.id),
+            title: String(item.title || "").slice(0, 500),
+            price: Number(item.price),
+            original_price: item.original_price && Number(item.original_price) > 0 ? Number(item.original_price) : null,
+            thumbnail: item.thumbnail ? String(item.thumbnail).replace("http://", "https://") : null,
+            permalink: String(item.permalink || `https://www.mercadolivre.com.br/p/${item.id}`),
+            category_id: categoryId,
+            category_name: categoryName,
+            sold_quantity: Number(item.sold_quantity || 0),
+            condition: item.condition || null,
+            free_shipping: Boolean(item.shipping?.free_shipping),
+            synced_at: new Date().toISOString(),
+          });
+        }
+      } catch {
+        continue;
+      }
+    }
   }
+  return all;
 }
 
 async function syncFromMlCatalog(supabase: ReturnType<typeof createClient>) {
