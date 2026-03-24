@@ -319,23 +319,56 @@ async function syncFromMlCatalog(supabase: ReturnType<typeof createClient>) {
   const collected: ProductPayload[] = [...searchProducts];
   const batchSize = 8;
 
+  console.log(`Total IDs to fetch details: ${idsToFetch.length}`);
+
   for (let i = 0; i < idsToFetch.length; i += batchSize) {
     const batch = idsToFetch.slice(i, i + batchSize);
     const batchResults = await Promise.allSettled(
       batch.map(async (id) => {
-        const details = await fetchWithRetry(
-          `https://api.mercadolibre.com/products/${id}/items?limit=1`,
-          token,
-          2
-        );
-        const first = (details?.results || [])[0];
-        return normalizeFromItems(id, first, fallbackMap.get(id));
+        // Try /products/{id}/items first
+        try {
+          const details = await fetchWithRetry(
+            `https://api.mercadolibre.com/products/${id}/items?limit=1`,
+            token, 1
+          );
+          const first = (details?.results || [])[0];
+          if (first) return normalizeFromItems(id, first, fallbackMap.get(id));
+        } catch {}
+
+        // Fallback: try /items/{id} directly (if ID is an item ID like MLB...)
+        try {
+          const item = await fetchWithRetry(
+            `https://api.mercadolibre.com/items/${id}`,
+            token, 1
+          );
+          if (item?.id && Number(item?.price) > 0) {
+            const fb = fallbackMap.get(id) || {};
+            return {
+              ml_id: String(item.id),
+              title: String(item.title || "").slice(0, 500),
+              price: Number(item.price),
+              original_price: item.original_price && Number(item.original_price) > 0 ? Number(item.original_price) : null,
+              thumbnail: item.thumbnail ? String(item.thumbnail).replace("http://", "https://") : null,
+              permalink: String(item.permalink || `https://www.mercadolivre.com.br/p/${id}`),
+              category_id: String(item.category_id || fb.category_id || ""),
+              category_name: String(fb.category_name || ""),
+              sold_quantity: Number(item.sold_quantity || 0),
+              condition: item.condition || null,
+              free_shipping: Boolean(item.shipping?.free_shipping),
+              synced_at: new Date().toISOString(),
+            } as ProductPayload;
+          }
+        } catch {}
+
+        return null;
       })
     );
 
+    let batchOk = 0;
     for (const r of batchResults) {
       if (r.status === "fulfilled" && r.value) {
         collected.push(r.value);
+        batchOk++;
       }
     }
   }
