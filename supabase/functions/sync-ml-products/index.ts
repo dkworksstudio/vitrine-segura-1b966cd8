@@ -238,7 +238,8 @@ async function fetchItemsBatch(
       if (!Array.isArray(data)) continue;
       for (const entry of data) {
         const item = entry?.body;
-        if (!item?.id || Number(item?.price) <= 0) continue;
+        const price = Number(item?.price);
+        if (!item?.id || !Number.isFinite(price) || price <= 0) continue;
         const catInfo = categoryMap.get(item.id) || categoryMap.get(item.category_id) || {};
         const catId = String((catInfo as any).category_id || item.category_id || "");
         const catName = String((catInfo as any).category_name || "");
