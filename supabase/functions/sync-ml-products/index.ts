@@ -182,23 +182,19 @@ function normalizeFromItems(
   };
 }
 
-async function fetchSearchProducts(categoryId: string, categoryName: string, token: string, target = 30): Promise<ProductPayload[]> {
+async function fetchSearchProducts(categoryId: string, categoryName: string, target = 30): Promise<ProductPayload[]> {
   const seen = new Set<string>();
   const all: ProductPayload[] = [];
 
+  // Search API (public, no auth) - may work or may 403
   const sorts = ["sold_quantity_desc", "relevance", "price_desc"];
   for (const sort of sorts) {
     if (all.length >= target) break;
-    for (let offset = 0; offset < 150 && all.length < target; offset += 50) {
+    for (let offset = 0; offset < 100 && all.length < target; offset += 50) {
       const url = `https://api.mercadolibre.com/sites/MLB/search?category=${categoryId}&sort=${sort}&limit=50&offset=${offset}`;
       try {
-        const res = await fetch(url, {
-          headers: { Accept: "application/json", Authorization: `Bearer ${token}` },
-        });
-        if (!res.ok) {
-          console.warn(`Search failed [${res.status}] cat=${categoryId} sort=${sort} offset=${offset}`);
-          continue;
-        }
+        const res = await fetch(url, { headers: { Accept: "application/json" } });
+        if (!res.ok) break; // If 403, skip this sort entirely
         const data = await res.json();
         const results = data?.results || [];
         if (results.length === 0) break;
@@ -222,12 +218,58 @@ async function fetchSearchProducts(categoryId: string, categoryName: string, tok
           });
         }
       } catch {
-        continue;
+        break;
       }
     }
   }
-  console.log(`Category ${categoryName}: found ${all.length} products`);
+  console.log(`Search ${categoryName}: found ${all.length} products`);
   return all;
+}
+
+async function fetchTrendsByCategory(categoryId: string, token: string): Promise<string[]> {
+  // Try multiple endpoints to gather product IDs
+  const ids = new Set<string>();
+
+  // 1. Highlights
+  try {
+    const data = await fetchWithRetry(
+      `https://api.mercadolibre.com/highlights/MLB/category/${categoryId}`,
+      token, 1
+    );
+    for (const entry of data?.content || []) {
+      if (entry?.id) ids.add(String(entry.id));
+    }
+  } catch {}
+
+  // 2. Trends
+  try {
+    const data = await fetchWithRetry(
+      `https://api.mercadolibre.com/trends/MLB/${categoryId}`,
+      token, 1
+    );
+    for (const trend of data || []) {
+      if (trend?.url) {
+        // Extract search term and search for it
+        const keyword = trend.keyword || "";
+        if (keyword) {
+          try {
+            const searchRes = await fetch(
+              `https://api.mercadolibre.com/sites/MLB/search?q=${encodeURIComponent(keyword)}&category=${categoryId}&limit=10`,
+              { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } }
+            );
+            if (searchRes.ok) {
+              const searchData = await searchRes.json();
+              for (const item of searchData?.results || []) {
+                if (item?.id) ids.add(String(item.id));
+              }
+            }
+          } catch {}
+        }
+      }
+    }
+  } catch {}
+
+  return Array.from(ids).slice(0, 50);
 }
 
 async function syncFromMlCatalog(supabase: ReturnType<typeof createClient>) {
