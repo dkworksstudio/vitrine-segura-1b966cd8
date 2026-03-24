@@ -182,21 +182,26 @@ function normalizeFromItems(
   };
 }
 
-async function fetchSearchProducts(categoryId: string, categoryName: string, target = 30): Promise<ProductPayload[]> {
+async function fetchSearchProducts(categoryId: string, categoryName: string, token: string, target = 30): Promise<ProductPayload[]> {
   const seen = new Set<string>();
   const all: ProductPayload[] = [];
 
-  // Try multiple sort orders and offsets to gather enough products
   const sorts = ["sold_quantity_desc", "relevance", "price_desc"];
   for (const sort of sorts) {
     if (all.length >= target) break;
-    for (let offset = 0; offset < 100 && all.length < target; offset += 50) {
+    for (let offset = 0; offset < 150 && all.length < target; offset += 50) {
       const url = `https://api.mercadolibre.com/sites/MLB/search?category=${categoryId}&sort=${sort}&limit=50&offset=${offset}`;
       try {
-        const res = await fetch(url, { headers: { Accept: "application/json" } });
-        if (!res.ok) continue;
+        const res = await fetch(url, {
+          headers: { Accept: "application/json", Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) {
+          console.warn(`Search failed [${res.status}] cat=${categoryId} sort=${sort} offset=${offset}`);
+          continue;
+        }
         const data = await res.json();
         const results = data?.results || [];
+        if (results.length === 0) break;
         for (const item of results) {
           if (all.length >= target) break;
           if (!item?.id || Number(item?.price) <= 0 || seen.has(String(item.id))) continue;
@@ -221,6 +226,7 @@ async function fetchSearchProducts(categoryId: string, categoryName: string, tar
       }
     }
   }
+  console.log(`Category ${categoryName}: found ${all.length} products`);
   return all;
 }
 
