@@ -221,46 +221,30 @@ async function fetchProductIds(categoryId: string, token: string): Promise<strin
   return Array.from(ids);
 }
 
-async function fetchItemsBatch(
+async function fetchItemsForIds(
   ids: string[],
   token: string,
   categoryMap: Map<string, { category_id: string; category_name: string }>
 ): Promise<ProductPayload[]> {
-  // ML multiget: GET /items?ids=MLB1,MLB2,...&attributes=id,title,price,original_price,thumbnail,permalink,category_id,sold_quantity,condition,shipping
   const results: ProductPayload[] = [];
-  const batchSize = 20; // ML allows up to 20 per multiget
+  const batchSize = 15;
 
   for (let i = 0; i < ids.length; i += batchSize) {
     const batch = ids.slice(i, i + batchSize);
-    const url = `https://api.mercadolibre.com/items?ids=${batch.join(",")}&attributes=id,title,price,original_price,thumbnail,permalink,category_id,sold_quantity,condition,shipping`;
-    try {
-      const data = await fetchWithRetry(url, token, 1);
-      if (!Array.isArray(data)) continue;
-      for (const entry of data) {
-        const item = entry?.body;
-        const price = Number(item?.price);
-        if (!item?.id || !Number.isFinite(price) || price <= 0) continue;
-        const catInfo = categoryMap.get(item.id) || categoryMap.get(item.category_id) || {};
-        const catId = String((catInfo as any).category_id || item.category_id || "");
-        const catName = String((catInfo as any).category_name || "");
-        if (!catId || !catName) continue;
-        results.push({
-          ml_id: String(item.id),
-          title: String(item.title || "").slice(0, 500),
-          price: Number(item.price),
-          original_price: item.original_price && Number(item.original_price) > 0 ? Number(item.original_price) : null,
-          thumbnail: item.thumbnail ? String(item.thumbnail).replace("http://", "https://") : null,
-          permalink: String(item.permalink || `https://www.mercadolivre.com.br/p/${item.id}`),
-          category_id: catId,
-          category_name: catName,
-          sold_quantity: Number(item.sold_quantity || 0),
-          condition: item.condition || null,
-          free_shipping: Boolean(item.shipping?.free_shipping),
-          synced_at: new Date().toISOString(),
-        });
-      }
-    } catch (err) {
-      console.warn(`Multiget batch failed:`, err);
+    const batchResults = await Promise.allSettled(
+      batch.map(async (id) => {
+        const details = await fetchWithRetry(
+          `https://api.mercadolibre.com/products/${id}/items?limit=1`,
+          token, 1
+        );
+        const first = (details?.results || [])[0];
+        if (!first) return null;
+        const fb = categoryMap.get(id) || {};
+        return normalizeFromItems(id, first, fb as any);
+      })
+    );
+    for (const r of batchResults) {
+      if (r.status === "fulfilled" && r.value) results.push(r.value);
     }
   }
   return results;
