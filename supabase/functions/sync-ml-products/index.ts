@@ -274,7 +274,7 @@ async function syncFromMlCatalog(supabase: ReturnType<typeof createClient>) {
   console.log(`Total unique IDs to fetch: ${uniqueIds.length}`);
 
   // Fetch all items via multiget (20 per request = fast)
-  const collected = await fetchItemsBatch(uniqueIds, token, categoryMap);
+  const collected = await fetchItemsForIds(uniqueIds, token, categoryMap);
   console.log(`Total products fetched: ${collected.length}`);
 
   if (collected.length === 0) {
