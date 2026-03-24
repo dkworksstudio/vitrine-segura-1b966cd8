@@ -296,7 +296,7 @@ async function syncFromMlCatalog(supabase: ReturnType<typeof createClient>) {
     searchProducts.push(...fromSearch);
 
     // Authenticated: highlights + trends for more IDs
-    const trendIds = await fetchTrendsByCategory(category.id, token);
+    const trendIds = await fetchProductIds(category.id, token);
     for (const id of trendIds) {
       if (!fallbackMap.has(id)) {
         fallbackMap.set(id, {
