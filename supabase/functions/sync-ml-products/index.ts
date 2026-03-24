@@ -226,11 +226,10 @@ async function fetchSearchProducts(categoryId: string, categoryName: string, tar
   return all;
 }
 
-async function fetchTrendsByCategory(categoryId: string, token: string): Promise<string[]> {
-  // Try multiple endpoints to gather product IDs
+async function fetchProductIds(categoryId: string, token: string): Promise<string[]> {
   const ids = new Set<string>();
 
-  // Highlights only (fast, authenticated)
+  // 1. Highlights for main category
   try {
     const data = await fetchWithRetry(
       `https://api.mercadolibre.com/highlights/MLB/category/${categoryId}`,
@@ -241,18 +240,29 @@ async function fetchTrendsByCategory(categoryId: string, token: string): Promise
     }
   } catch {}
 
-  // Also try top-level trends to get IDs directly
+  // 2. Get subcategories and fetch highlights for each (to get more IDs)
   try {
-    const data = await fetchWithRetry(
-      `https://api.mercadolibre.com/trends/MLB/${categoryId}`,
+    const catData = await fetchWithRetry(
+      `https://api.mercadolibre.com/categories/${categoryId}`,
       token, 1
     );
-    // Trends may include item IDs or keywords - extract any IDs
-    for (const trend of data || []) {
-      if (trend?.id) ids.add(String(trend.id));
-    }
+    const children = (catData?.children_categories || []).slice(0, 5);
+    const subResults = await Promise.allSettled(
+      children.map(async (child: any) => {
+        try {
+          const subHighlights = await fetchWithRetry(
+            `https://api.mercadolibre.com/highlights/MLB/category/${child.id}`,
+            token, 1
+          );
+          for (const entry of subHighlights?.content || []) {
+            if (entry?.id) ids.add(String(entry.id));
+          }
+        } catch {}
+      })
+    );
   } catch {}
 
+  console.log(`IDs for ${categoryId}: ${ids.size}`);
   return Array.from(ids).slice(0, 60);
 }
 
