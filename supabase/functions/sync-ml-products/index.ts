@@ -230,7 +230,7 @@ async function fetchTrendsByCategory(categoryId: string, token: string): Promise
   // Try multiple endpoints to gather product IDs
   const ids = new Set<string>();
 
-  // 1. Highlights
+  // Highlights only (fast, authenticated)
   try {
     const data = await fetchWithRetry(
       `https://api.mercadolibre.com/highlights/MLB/category/${categoryId}`,
@@ -241,35 +241,19 @@ async function fetchTrendsByCategory(categoryId: string, token: string): Promise
     }
   } catch {}
 
-  // 2. Trends
+  // Also try top-level trends to get IDs directly
   try {
     const data = await fetchWithRetry(
       `https://api.mercadolibre.com/trends/MLB/${categoryId}`,
       token, 1
     );
+    // Trends may include item IDs or keywords - extract any IDs
     for (const trend of data || []) {
-      if (trend?.url) {
-        // Extract search term and search for it
-        const keyword = trend.keyword || "";
-        if (keyword) {
-          try {
-            const searchRes = await fetch(
-              `https://api.mercadolibre.com/sites/MLB/search?q=${encodeURIComponent(keyword)}&category=${categoryId}&limit=10`,
-              { headers: { Authorization: `Bearer ${token}`, Accept: "application/json" } }
-            );
-            if (searchRes.ok) {
-              const searchData = await searchRes.json();
-              for (const item of searchData?.results || []) {
-                if (item?.id) ids.add(String(item.id));
-              }
-            }
-          } catch {}
-        }
-      }
+      if (trend?.id) ids.add(String(trend.id));
     }
   } catch {}
 
-  return Array.from(ids).slice(0, 50);
+  return Array.from(ids).slice(0, 60);
 }
 
 async function syncFromMlCatalog(supabase: ReturnType<typeof createClient>) {
