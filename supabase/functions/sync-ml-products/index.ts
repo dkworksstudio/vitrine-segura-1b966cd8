@@ -285,6 +285,12 @@ async function syncFromMlCatalog(supabase: ReturnType<typeof createClient>) {
   console.log(`Total products fetched: ${collected.length}`);
 
   if (collected.length === 0) {
+    // Don't fail if we already have products in DB
+    const { count } = await supabase.from("products").select("*", { count: "exact", head: true });
+    if (count && count > 0) {
+      console.warn("No new products fetched, but DB has existing products");
+      return count;
+    }
     throw new Error("No products fetched from ML");
   }
 
