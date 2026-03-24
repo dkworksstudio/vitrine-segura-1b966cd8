@@ -233,19 +233,26 @@ async function fetchItemsForIds(
     const batch = ids.slice(i, i + batchSize);
     const batchResults = await Promise.allSettled(
       batch.map(async (id) => {
-        const details = await fetchWithRetry(
-          `https://api.mercadolibre.com/products/${id}/items?limit=1`,
-          token, 1
-        );
-        const first = (details?.results || [])[0];
-        if (!first) return null;
-        const fb = categoryMap.get(id) || {};
-        return normalizeFromItems(id, first, fb as any);
+        try {
+          const details = await fetchWithRetry(
+            `https://api.mercadolibre.com/products/${id}/items?limit=1`,
+            token, 1
+          );
+          const first = (details?.results || [])[0];
+          if (!first) return null;
+          const fb = categoryMap.get(id) || {};
+          return normalizeFromItems(id, first, fb as any);
+        } catch (err: any) {
+          if (i === 0) console.warn(`Item fetch failed for ${id}: ${err.message?.slice(0, 100)}`);
+          return null;
+        }
       })
     );
     for (const r of batchResults) {
       if (r.status === "fulfilled" && r.value) results.push(r.value);
     }
+    // If getting rate limited, add delay
+    if (results.length === 0 && i > 0) await new Promise(r => setTimeout(r, 500));
   }
   return results;
 }
