@@ -132,42 +132,39 @@ function sanitizeIncoming(products: any[]): ProductPayload[] {
     .filter((p) => p.category_id && p.category_name);
 }
 
-function normalizeFromItems(
-  productId: string,
-  firstResult: any,
+function normalizeFromItem(
+  item: any,
   fallback?: {
-    title?: string;
     thumbnail?: string | null;
     permalink?: string;
     category_id?: string;
     category_name?: string;
   }
 ): ProductPayload | null {
-  const nested = firstResult?.item ?? {};
-  const price = Number(firstResult?.price ?? nested?.price ?? 0);
+  const itemId = String(item?.id ?? "");
+  if (!itemId) return null;
+
+  const price = Number(item?.price ?? 0);
   if (!Number.isFinite(price) || price <= 0) return null;
 
-  const title = String(firstResult?.title ?? nested?.title ?? fallback?.title ?? "").slice(0, 500);
+  const title = String(item?.title ?? "").slice(0, 500);
   if (!title) return null;
 
-  const permalink =
-    String(firstResult?.permalink ?? nested?.permalink ?? fallback?.permalink ?? "") ||
-    `https://www.mercadolivre.com.br/p/${productId}`;
+  const permalink = String(item?.permalink ?? fallback?.permalink ?? "") ||
+    `https://www.mercadolivre.com.br/p/${itemId}`;
 
-  const categoryId = String(firstResult?.category_id ?? nested?.category_id ?? fallback?.category_id ?? "");
-  const categoryName = String(
-    firstResult?.category_name ?? nested?.category_name ?? fallback?.category_name ?? ""
-  );
+  const categoryId = String(fallback?.category_id ?? item?.category_id ?? "");
+  const categoryName = String(fallback?.category_name ?? item?.category_name ?? "");
 
   if (!categoryId || !categoryName) return null;
 
-  const thumb = firstResult?.thumbnail ?? nested?.thumbnail ?? fallback?.thumbnail ?? null;
-  const originalPriceRaw = Number(firstResult?.original_price ?? nested?.original_price ?? 0);
-  const soldRaw = Number(firstResult?.sold_quantity ?? nested?.sold_quantity ?? 0);
-  const shipping = firstResult?.shipping ?? nested?.shipping ?? {};
+  const thumb = item?.thumbnail ?? item?.pictures?.[0]?.url ?? fallback?.thumbnail ?? null;
+  const originalPriceRaw = Number(item?.original_price ?? 0);
+  const soldRaw = Number(item?.sold_quantity ?? 0);
+  const shipping = item?.shipping ?? {};
 
   return {
-    ml_id: productId,
+    ml_id: itemId,
     title,
     price,
     original_price: Number.isFinite(originalPriceRaw) && originalPriceRaw > 0 ? originalPriceRaw : null,
@@ -176,7 +173,7 @@ function normalizeFromItems(
     category_id: categoryId,
     category_name: categoryName,
     sold_quantity: Number.isFinite(soldRaw) ? soldRaw : 0,
-    condition: firstResult?.condition ?? nested?.condition ?? null,
+    condition: item?.condition ?? null,
     free_shipping: Boolean(shipping?.free_shipping),
     synced_at: new Date().toISOString(),
   };
@@ -202,7 +199,7 @@ async function fetchProductIds(categoryId: string, token: string): Promise<strin
       `https://api.mercadolibre.com/categories/${categoryId}`,
       token, 1
     );
-    const children = (catData?.children_categories || []).slice(0, 8);
+    const children = (catData?.children_categories || []).slice(0, 20);
     await Promise.allSettled(
       children.map(async (child: any) => {
         try {
@@ -224,67 +221,60 @@ async function fetchProductIds(categoryId: string, token: string): Promise<strin
 async function fetchItemsForIds(
   ids: string[],
   token: string,
-  categoryMap: Map<string, { category_id: string; category_name: string }>
+  fallbackCategory: { category_id: string; category_name: string }
 ): Promise<ProductPayload[]> {
   const results: ProductPayload[] = [];
-  const batchSize = 15;
+  const batchSize = 20;
 
   for (let i = 0; i < ids.length; i += batchSize) {
     const batch = ids.slice(i, i + batchSize);
-    const batchResults = await Promise.allSettled(
-      batch.map(async (id) => {
-        try {
-          const details = await fetchWithRetry(
-            `https://api.mercadolibre.com/products/${id}/items?limit=1`,
-            token, 1
-          );
-          const first = (details?.results || [])[0];
-          if (!first) return null;
-          const fb = categoryMap.get(id) || {};
-          return normalizeFromItems(id, first, fb as any);
-        } catch (err: any) {
-          if (i === 0) console.warn(`Item fetch failed for ${id}: ${err.message?.slice(0, 100)}`);
-          return null;
-        }
-      })
-    );
-    for (const r of batchResults) {
-      if (r.status === "fulfilled" && r.value) results.push(r.value);
+    try {
+      const details = await fetchWithRetry(
+        `https://api.mercadolibre.com/items?ids=${batch.join(",")}`,
+        token,
+        1
+      );
+
+      for (const entry of Array.isArray(details) ? details : []) {
+        if (entry?.code !== 200 || !entry?.body) continue;
+        const normalized = normalizeFromItem(entry.body, fallbackCategory);
+        if (normalized) results.push(normalized);
+      }
+    } catch (err: any) {
+      console.warn(`Batch item fetch failed (${fallbackCategory.category_name}): ${err.message?.slice(0, 120)}`);
     }
-    // If getting rate limited, add delay
-    if (results.length === 0 && i > 0) await new Promise(r => setTimeout(r, 500));
+
+    if (i + batchSize < ids.length) {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
   }
-  return results;
+
+  return Array.from(new Map(results.map((product) => [product.ml_id, product])).values());
 }
 
 async function syncFromMlCatalog(supabase: ReturnType<typeof createClient>) {
   const token = await getMlAccessToken();
-
-  // Build category map: item_id -> { category_id, category_name }
-  const categoryMap = new Map<string, { category_id: string; category_name: string }>();
-  const allIds: string[] = [];
+  const collected: ProductPayload[] = [];
 
   for (const category of CATEGORIES) {
     const ids = await fetchProductIds(category.id, token);
     console.log(`${category.name}: ${ids.length} IDs from highlights`);
 
-    // Take up to 40 IDs per category to ensure we get 30+ valid items
-    const selected = ids.slice(0, 40);
-    for (const id of selected) {
-      categoryMap.set(id, { category_id: category.id, category_name: category.name });
-    }
-    allIds.push(...selected);
+    const selected = ids.slice(0, 120);
+    const normalized = await fetchItemsForIds(selected, token, {
+      category_id: category.id,
+      category_name: category.name,
+    });
+    const categoryProducts = normalized.slice(0, 30);
+
+    console.log(`${category.name}: ${categoryProducts.length} products normalized`);
+    collected.push(...categoryProducts);
   }
 
-  // Deduplicate
-  const uniqueIds = Array.from(new Set(allIds));
-  console.log(`Total unique IDs to fetch: ${uniqueIds.length}`);
+  const uniqueProducts = Array.from(new Map(collected.map((product) => [product.ml_id, product])).values());
+  console.log(`Total products fetched: ${uniqueProducts.length}`);
 
-  // Fetch all items via multiget (20 per request = fast)
-  const collected = await fetchItemsForIds(uniqueIds, token, categoryMap);
-  console.log(`Total products fetched: ${collected.length}`);
-
-  if (collected.length === 0) {
+  if (uniqueProducts.length === 0) {
     // Don't fail if we already have products in DB
     const { count } = await supabase.from("products").select("*", { count: "exact", head: true });
     if (count && count > 0) {
@@ -296,13 +286,13 @@ async function syncFromMlCatalog(supabase: ReturnType<typeof createClient>) {
 
   const { error: upsertError } = await supabase
     .from("products")
-    .upsert(collected, { onConflict: "ml_id" });
+    .upsert(uniqueProducts, { onConflict: "ml_id" });
 
   if (upsertError) {
     throw new Error(`Erro no upsert: ${upsertError.message}`);
   }
 
-  return collected.length;
+  return uniqueProducts.length;
 }
 
 serve(async (req) => {

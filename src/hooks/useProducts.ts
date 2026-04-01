@@ -26,6 +26,10 @@ export const CATEGORIES = [
   { id: "MLB1132", name: "Casa e Decoração" },
 ];
 
+function getCategoryName(categoryId?: string) {
+  return CATEGORIES.find((category) => category.id === categoryId)?.name;
+}
+
 export function useProducts(categoryId?: string) {
   return useQuery({
     queryKey: ["products", categoryId],
@@ -37,7 +41,11 @@ export function useProducts(categoryId?: string) {
         .order("sold_quantity", { ascending: false });
 
       if (categoryId) {
-        query = query.eq("category_id", categoryId);
+        const categoryName = getCategoryName(categoryId);
+
+        query = categoryName
+          ? query.eq("category_name", categoryName).limit(30)
+          : query.eq("category_id", categoryId).limit(30);
       }
 
       const { data, error } = await query;
